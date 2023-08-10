@@ -33,10 +33,9 @@ def display_board(pos, check, comp_move=False):
     
     print()
     sys.stdout.flush()
-    if check != 2 and not comp_move:
+    if check is None and not comp_move:
         print("Please select one of the open positions above")
     
-    time.sleep(1.5)
 
 def select_position():
     input_pos = input("Enter a number between 1 and 9: ")
@@ -104,49 +103,43 @@ def check_winner(pos):
     ]
     
     for win in win_combos:
-        check = sum(np.unique(win, return_counts=True)[1] > 1)
-        if check == 2:
+        if len(set(win)) == 1 and win[0] in ["X", "O"]:
             print(f"\nPlayer {win[0]} wins!")
             sys.stdout.flush()
-            return check
+            return win[0]
     
-    if len(open_pos) == 0 and check != 2:
+    if len(open_pos) == 0:
         print("\nIt's a draw!")
         sys.stdout.flush()
-        check = 2
+        return "draw"
     
-    return check
+    return None
 
-print("Welcome to Taylor's tic tac toe showdown!\n")
-sys.stdout.flush()
 
-pos = list(range(1, 10))
-symbol = select_player()
-check = check_winner(pos)
-time.sleep(1.5)
-display_board(pos, check)
-while check != 2:
-    input_pos = select_position()
-    pos = update_position(input_pos, pos, symbol)
-    
-    if check != 2:
-        check = check_winner(pos)
-        if check == 2:
-            time.sleep(1.5)
-            display_board(pos, check)
-            break
+def main():
+    print("Welcome to Taylor's tic tac toe showdown!\n")
+    sys.stdout.flush()
 
-    time.sleep(1.5)
-    display_board(pos, check, comp_move=True)
-    time.sleep(1.5)
-    pos = computer_move(pos, symbol, check)
-    
-    if check != 2:
-        check = check_winner(pos)
-        if check == 2:
-            time.sleep(1.5)
-            display_board(pos, check)
-            break
-        
+    pos = list(range(1, 10))
+    symbol = select_player()
+    check = check_winner(pos)
     time.sleep(1.5)
     display_board(pos, check)
+
+    while check is None:
+        input_pos = select_position()
+        pos = update_position(input_pos, pos, symbol)
+        check = check_winner(pos)
+
+        if check is None:
+            time.sleep(1.5)
+            display_board(pos, check, comp_move=True)
+            time.sleep(1.5)
+            pos = computer_move(pos, symbol, check)
+            check = check_winner(pos)
+
+        time.sleep(1.5)
+        display_board(pos, check)
+
+if __name__ == "__main__":
+    main()
