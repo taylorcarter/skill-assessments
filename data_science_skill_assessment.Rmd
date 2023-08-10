@@ -4,9 +4,14 @@ author: "Taylor Carter"
 date: "`r Sys.Date()`"
 output:
   html_document:
+    code_folding: hide
     toc: true
     toc_depth: 2
-
+    toc_float:
+        collapsed: false
+        smooth_scroll: true
+    theme: united
+    highlight: tango
 ---
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
@@ -16,7 +21,7 @@ knitr::opts_chunk$set(
 ```
 
 
-```{r}
+```{r, message = FALSE}
 library(tidyverse)
 library(ggplot2)
 library(ggpubr)
@@ -24,12 +29,13 @@ library(plotly)
 library(data.table)
 library(rstatix)
 library(countrycode)
+library(car)
 ```
 
 # Part I
 
 ## Question 1
-```{r}
+```{r, message = FALSE}
 data <- data.table(read.csv("gapminder_clean.csv")) # used read.csv to leverage ggpubr plotting
 data <- data %>% mutate(continent = countrycode(
   sourcevar = Country.Name,
@@ -40,6 +46,7 @@ data[is.na(continent), continent := "Unknown"]
 ```
 
 ## Question 2 & 3
+To determine the relationship between normalized CO<sub>2</sub> emissions and GDP per capita in 1962 we'll use Pearson's correlation. We'll do this by setting `cor.coef=TRUE` in `ggscatter` (default method is Pearson's correlation).
 ```{r, fig.height=5, fig.width=7}
 data %>%
   filter(Year == 1962) %>%
@@ -48,14 +55,18 @@ data %>%
     y = "gdpPercap",
     add = "reg.line",
     cor.coef = TRUE
-  ) +
+  ) + 
   labs(
-    x = "CO2 emissions (metric tons per capita)",
-    y = "GDP per Capita"
+    x = expression(paste(CO[2], " emissions (metric tons per capita)")),
+    y = "GDP per Capita",
+    title = expression(paste("Correlation between ", CO[2], " emissions and GDP per capita"))
   )
 ```
 
+Interpretation: As you can see from the Pearson correlation coefficient (R) normalized CO<sub>2</sub> emissions and GDP per capita in 1962 were highly correlated
+
 ## Question 4
+To determine what year normalized CO<sub>2</sub> emissions and GDP per capita were the most highly correlated we'll group by year, then correlate using Pearson's correlation (`cor`'s default method)
 ```{r}
 maxCorrYear <- data %>%
   group_by(Year) %>%
@@ -69,6 +80,7 @@ maxCorrYear <- data %>%
   ungroup() %>%
   filter(correlation == max(correlation, na.rm = TRUE))
 ```
+The highest correlation between normalized CO<sub>2</sub> emissions and GDP per capita is **`r unique(maxCorrYear$Year)`**
 
 ## Question 5
 ```{r, fig.height=5, fig.width=7}
@@ -80,8 +92,11 @@ p <- maxCorrYear %>%
     color = "continent"
   ) +
   labs(
-    x = "CO2 emissions (metric tons per capita)",
-    y = "GDP per Capita"
+    x = "CO<sub>2</sub> emissions (metric tons per capita)",
+    y = "GDP per Capita",
+    title = "Correlation between CO<sub>2</sub> emissions and GDP per capita",
+    size = NULL,
+    color = "Continent"
   )
 
 ggplotly(p)
@@ -89,7 +104,16 @@ ggplotly(p)
 
 # Part II
 ## Question 1
-#### Calculate the mean energy usage of each country over the given years
+We will complete the following steps to determine the relationship between continent and normalized energy usage:
+
+1. Calculate the mean of each country's normalized energy usage across the given time period (1962 - 2007)
+2. Ensure each country has an assigned continent
+3. Test our data for normality using the Shapiro-Wilks test
+4. Test our data for the equal variance assumption using Levene's test
+5. Depending on our test for normality and equal variance, apply the appropriate statistic to compare energy usage by continent
+6. Plot results
+
+#### 2.1.1 - 2.1.2
 ```{r}
 country_energy_use <- data %>%
   group_by(Country.Name) %>%
@@ -107,7 +131,8 @@ energy_use <- merge(
   data[!duplicated(Country.Name), c("Country.Name", "continent"), with = FALSE]
 )
 ```
-#### Assess normality assumption
+
+#### 2.1.3
 ```{r}
 normality <- energy_use %>%
   group_by(continent) %>%
@@ -127,16 +152,19 @@ normality_tbl <- normality %>%
 normality_tbl
 ```
 
-Result: The energy usage within each continent deviates significantly from a normal distribution
+Interpretation: The energy usage within each continent deviates significantly from a normal distribution (p-values < 0.05)
 
-#### Assess equal variance assumption
+#### 2.1.4
 ```{r, comment=''}
-variance <- oneway.test(mean_energy_use ~ continent, data = energy_use, var.equal = FALSE)
-variance
+variance <- leveneTest(mean_energy_use ~ continent, data = energy_use)
 ```
-Result: The small p-value indicates that the variances in energy usage across each continent are significantly different. Thus, we have unequal variances
+Levene's statistic: **`r variance[[2]][[1]]`**,  Levene's p-value: **`r variance[[3]][[1]]`**
 
-#### Perform pairwise comparisons and plot results
+Interpretation: The p-value is > 0.05 meaning the variances in energy usage across each continent are not significantly different
+
+#### 2.1.5
+
+Since our dataset is non-normal but has equal variance we should deploy a non-parametric test that does not rely on the assumption of normality, like the Wilcoxon test. The Wilcoxon test will allow us to perform a pairwise comparison between the energy usage of each continent.
 ```{r}
 pairwise_result <- pairwise_wilcox_test(
   data = energy_use,
@@ -155,6 +183,9 @@ tbl <- pairwise_result %>%
   tab_add_hline(at.row = nrow(pairwise_result) + 1, row.side = "bottom", linewidth = 2)
 ```
 
+#### 2.1.6
+
+Order the continents by median energy use
 ```{r}
 x_axis_order <- energy_use %>%
   group_by(continent) %>%
@@ -165,6 +196,7 @@ x_axis_order <- energy_use %>%
   pull(continent)
 ```
 
+Generate plot
 ```{r, fig.height=5, fig.width=12}
 p <- energy_use %>%
   ggboxplot(
@@ -184,10 +216,19 @@ p <- energy_use %>%
 p <- ggpar(p, legend = "none")
 ggarrange(p, tbl, ncol = 2, nrow = 1)
 ```
-The figure above indicates that Europe has the highest per capita energy usage with Africa and Oceania tied for the lowest per capita energy usage. The energy usage of the Americas, Asia, and entities not associated with a continent fall somewhere in between  
+Interpretation: The figure above indicates that Europe has the highest per capita energy usage with Africa and Oceania tied for the lowest per capita energy usage. The energy usage of the Americas, Asia, and entities not associated with a continent fall somewhere in between.
 
 ## Question 2
-```{r, fig.height=5, fig.width=7}
+We will complete the following steps to determine if there a significant difference between Europe and Asia with respect to imports in the years after 1990:
+
+1. Calculate the mean of each countries import percentage after 1990
+2. Test our data for normality using the Shapiro-Wilks test
+3. Test our data for the equal variance assumption using Levene's test
+4. Depending on our test for normality and equal variance, apply the appropriate statistic to compare import percentage
+5. Plot results
+
+#### 2.2.1
+```{r}
 country_percent_imports <- data %>%
   filter(continent %in% c("Europe", "Asia") & Year >= 1990) %>%
   group_by(Country.Name) %>%
@@ -204,7 +245,42 @@ percent_imports <- merge(
   country_percent_imports,
   data[!duplicated(Country.Name), c("Country.Name", "continent"), with = FALSE]
 )
+```
 
+#### 2.2.2
+```{r}
+normality <- percent_imports %>%
+  group_by(continent) %>%
+  summarise(
+    statistic = shapiro.test(mean_import_perc)$statistic,
+    p_value = shapiro.test(mean_import_perc)$p.value
+  )
+
+normality_tbl <- normality %>%
+  ggtexttable(
+    rows = NULL,
+    theme = ttheme("blank")
+  ) %>%
+  tab_add_hline(at.row = c(1, 2), row.side = "top", linewidth = 2) %>%
+  tab_add_hline(at.row = nrow(normality) + 1, row.side = "bottom", linewidth = 2)
+
+normality_tbl
+```
+
+Interpretation: Import percentage for each continent deviates significantly from a normal distribution (p-values < 0.05)
+
+#### 2.2.3
+```{r}
+variance <- leveneTest(mean_import_perc ~ continent, data = percent_imports)
+```
+Levene's statistic: **`r variance[[2]][[1]]`**, Levene's p-value: **`r variance[[3]][[1]]`**
+
+Interpretation: The p-value is > 0.05 meaning the variances in import percentage across each continent are not significantly different
+
+#### 2.2.3
+
+Since our dataset is non-normal but has equal variance we should deploy a non-parametric test that does not rely on the assumption of normality, like the Wilcoxon test. `stat_compare_means` will automatically perform this calculation and plot the result on our boxplot.
+```{r, fig.height=5, fig.width=9}
 percent_imports %>%
   ggboxplot(
     x = "continent",
@@ -212,27 +288,29 @@ percent_imports %>%
     add = "jitter",
     xlab = FALSE,
     ylab = "Mean import percentage of goods and services",
+    title = "Import percentage of goods and services between Asia and Europe post 1990",
     outlier.shape = NA
   ) +
   stat_compare_means()
 ```
 
-As you can see from the Wilcoxon p-value, there is no significant difference between Europe and Asia with respect to the mean import percentage in the years after 1990
+As you can see from the Wilcoxon p-value (> 0.05), there is no significant difference between Europe and Asia with respect to the import percentage in the years after 1990
 
 ## Question 3
 ```{r}
 country_highest_pop <- data %>%
   group_by(Country.Name) %>%
   summarize(
-    mean = mean(pop, na.rm = TRUE)
+    mean = mean(Population.density..people.per.sq..km.of.land.area., na.rm = TRUE)
   ) %>%
   filter(mean == max(mean, na.rm = TRUE)) %>%
   pull(Country.Name)
 ```
 
-```{r, comment=''}
-country_highest_pop
+```{r, include=FALSE}
+country_highest_pop <- unlist(strsplit(country_highest_pop, ","))
 ```
+The countries with the highest population density per sq km of land are **`r country_highest_pop[[1]]`** and **`r gsub(" ", "", country_highest_pop)[[2]]`**
 
 ## Question 4
 ```{r}
@@ -244,7 +322,5 @@ country_highest_life <- data %>%
   filter(life_expectancy_increase == max(life_expectancy_increase, na.rm = TRUE)) %>%
   pull(Country.Name)
 ```
+The country with the greatest increase in life expectancy at birth between 1962 and 2007 is the **`r country_highest_life`**
 
-```{r, comment=''}
-country_highest_life
-```
